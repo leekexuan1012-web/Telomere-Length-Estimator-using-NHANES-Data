@@ -137,7 +137,7 @@ elif st.session_state.page == "predictor":
         st.title("Telomere Length Estimator")
 
     # Create tabs for Prediction and Model Info
-    tab1, tab2 = st.tabs(["🔮 Make Prediction", "📊 Model & Population"])
+    tab1, tab2 = st.tabs(["Make Prediction", "Model & Population"])
 
     # ==================== TAB 1: PREDICTOR ====================
     with tab1:
@@ -163,7 +163,7 @@ elif st.session_state.page == "predictor":
 
         if st.button("🧬 Calculate Prediction", type="primary", use_container_width=True):
             if not age_text.strip() or not height_text.strip() or not weight_text.strip():
-                st.warning("⚠️ Please fill out all fields before submitting.")
+                st.warning("Please fill out all fields before submitting.")
             else:
                 try:
                     # Parse inputs
@@ -188,7 +188,7 @@ elif st.session_state.page == "predictor":
                     prediction = model.predict(input_df)[0]
 
                     # Display main result with BMI classification
-                    st.success(f"✅ Your Estimated Telomere Length (T/S Ratio): **{prediction:.3f}**")
+                    st.success(f"Your Estimated Telomere Length (T/S Ratio): **{prediction:.3f}**")
                     
                     bmi_category, bmi_emoji = get_bmi_classification(bmi)
                     st.caption(f"Calculated BMI: **{bmi:.1f} kg/m²** | {bmi_emoji}")
@@ -316,7 +316,7 @@ elif st.session_state.page == "predictor":
 
     # ==================== TAB 2: MODEL INFO ====================
     with tab2:
-        st.subheader("🔬 Model Performance & Feature Importance")
+        st.subheader("Model Performance & Feature Importance")
 
         # Model performance metrics
         perf_col1, perf_col2, perf_col3 = st.columns(3)
@@ -358,25 +358,25 @@ elif st.session_state.page == "predictor":
         st.plotly_chart(fig_feat, use_container_width=True)
 
         st.markdown("---")
-        st.subheader("📋 Key Findings")
+        st.subheader("Key Findings")
 
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("""
             **What Works:**
-            - ✅ Age is the dominant predictor (~73% importance)
-            - ✅ BMI provides modest predictive value (~12%)
-            - ✅ Demographic factors add ~8%
-            - ✅ Model is stable across cross-validation
+            - Age is the dominant predictor (~73% importance)
+            - BMI provides modest predictive value (~12%)
+            - Demographic factors add ~8%
+            - Model is stable across cross-validation
             """)
         
         with col2:
             st.markdown("""
             **Limitations:**
-            - ⚠️ Explains only 17.5% of telomere variation
-            - ⚠️ ~82.5% unexplained by measured factors
-            - ⚠️ Behavioral factors (smoking, activity) don't improve predictions
-            - ⚠️ Cross-sectional data (NHANES 1999-2000)
+            - Explains only 17.5% of telomere variation
+            - ~82.5% unexplained by measured factors
+            - Behavioral factors (smoking, activity) don't improve predictions
+            - Cross-sectional data (NHANES 1999-2000)
             """)
 
         st.markdown("---")
@@ -402,7 +402,7 @@ elif st.session_state.page == "predictor":
         """)
 
         st.markdown("---")
-        st.subheader("⚠️ Important Disclaimers")
+        st.subheader("Important Disclaimers")
 
         st.warning("""
         - **Not a diagnostic tool:** This model is for education and research purposes only
