@@ -109,17 +109,28 @@ st.markdown(
     }}
 
     .st-key-theme_fab {{
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        z-index: 9999;
+        position: fixed !important;
+        bottom: 24px !important;
+        right: 24px !important;
+        left: auto !important;
+        top: auto !important;
+        width: fit-content !important;
+        margin: 0 !important;
+        z-index: 99999 !important;
+    }}
+    .st-key-theme_fab > div {{
+        width: fit-content !important;
+    }}
+    .st-key-theme_fab .stButton {{
+        width: fit-content !important;
     }}
     .st-key-theme_fab .stButton > button {{
-        border-radius: 50%;
-        width: 52px;
-        height: 52px;
-        padding: 0;
-        font-size: 1.4em;
+        border-radius: 50% !important;
+        width: 52px !important;
+        height: 52px !important;
+        min-width: 52px !important;
+        padding: 0 !important;
+        font-size: 1.4em !important;
         box-shadow: 0 6px 18px rgba(0,0,0,0.25);
     }}
     </style>
