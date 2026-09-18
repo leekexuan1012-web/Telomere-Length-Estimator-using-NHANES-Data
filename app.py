@@ -93,6 +93,45 @@ st.markdown(
     }}
     .stMetric [data-testid="stMetricValue"] {{ color: {text_color} !important; }}
 
+    /* Banner image at top of intro page — full width of the content area, fixed height */
+    .st-key-banner_image img {{
+        width: 100% !important;
+        height: 180px !important;
+        object-fit: cover !important;
+        border-radius: 10px !important;
+        display: block !important;
+    }}
+    /* Fix low-contrast caption text under the banner image */
+    .st-key-banner_image [data-testid="stImageCaption"],
+    .st-key-banner_image [data-testid="stCaptionContainer"],
+    .st-key-banner_image figcaption {{
+        color: {text_color} !important;
+        font-weight: 600 !important;
+        opacity: 1 !important;
+        text-align: center !important;
+    }}
+
+    /* Expander (e.g. "How do these models work?") — match theme instead of default dark card */
+    [data-testid="stExpander"] {{
+        background: {metric_bg} !important;
+        border: 1px solid {metric_border} !important;
+        border-radius: 12px !important;
+    }}
+    [data-testid="stExpander"] summary {{
+        background: transparent !important;
+    }}
+    [data-testid="stExpander"] * {{
+        color: {text_color} !important;
+    }}
+    [data-testid="stExpander"] svg {{
+        fill: {text_color} !important;
+    }}
+
+    /* Radio buttons — match the purple theme instead of default red/orange */
+    div[data-testid="stRadio"] input[type="radio"] {{
+        accent-color: {"#c79bff" if is_dark else "#7d5be8"};
+    }}
+
     .stDataFrame, .stAlert, .block-container {{ border-radius: 16px; }}
 
     [data-testid="stAlertContainer"] {{
@@ -102,10 +141,9 @@ st.markdown(
         color: {alert_text};
         box-shadow: 0 8px 18px rgba(123, 90, 230, 0.08);
     }}
-    [data-testid="stAlertContainer"] p,
-    [data-testid="stAlertContainer"] li,
-    [data-testid="stAlertContainer"] strong {{
+    [data-testid="stAlertContainer"] * {{
         color: {alert_text} !important;
+        font-weight: 600 !important;
     }}
 
     .st-key-theme_fab {{
@@ -147,13 +185,16 @@ if "show_form" not in st.session_state:
     st.session_state.show_form = False
 
 # Load saved model and feature list
-model = joblib.load("telomere_model.pkl")
+# Linear Regression consistently performed best across every stage of this
+# project, so it's the only model loaded and used for predictions.
+MODEL = joblib.load("telomere_model_linear_regression.pkl")
 feature_cols = joblib.load("model_features.pkl")
+MODEL_METRICS = joblib.load("model_metrics.pkl")
 
 # Population statistics from NHANES analysis
 POPULATION_STATS = {
     'age_mean': 42.5,
-    'age_range': (3, 85),
+    'age_range': (19, 85),
     'telomere_mean': 0.998,
     'telomere_std': 0.296,
     'telomere_range': (0.389, 9.42),
@@ -175,16 +216,153 @@ def get_bmi_classification(bmi):
     else:
         return "Obese", "🔴 Obese"
 
+def render_prediction_result(prediction, bmi, age, sex, race_selected, model_name, rmse):
+    bmi_category, bmi_emoji = get_bmi_classification(bmi)
+    st.success(f"Your Estimated Telomere Length (T/S Ratio): **{prediction:.3f}**")
+    st.caption(f"Calculated BMI: **{bmi:.1f} kg/m²** | {bmi_emoji}")
+
+    range_low = prediction - rmse
+    range_high = prediction + rmse
+    st.markdown(
+        f"**Model used:** {model_name} &nbsp;|&nbsp; "
+        f"**Likely range:** {range_low:.3f} – {range_high:.3f} T/S ratio "
+        f"(based on this model's typical prediction error on held-out test data — "
+        f"not a formal confidence interval)"
+    )
+
+    st.subheader("📈 What Does This Mean?")
+
+    z_score = (prediction - POPULATION_STATS['telomere_mean']) / POPULATION_STATS['telomere_std']
+    percentile = int((1 + np.tanh(z_score / np.sqrt(2))) * 50)
+    diff_from_mean = prediction - POPULATION_STATS['telomere_mean']
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Your T/S Ratio", f"{prediction:.3f}")
+    with col2:
+        st.metric("Population Mean", f"{POPULATION_STATS['telomere_mean']:.3f}")
+    with col3:
+        direction = "Shorter ↓" if diff_from_mean < 0 else "Longer ↑"
+        st.metric("vs. Population", f"{diff_from_mean:+.3f}", direction)
+
+    if prediction < POPULATION_STATS['telomere_mean'] - POPULATION_STATS['telomere_std']:
+        interpretation = "**Shorter than average** (lower percentile) - May suggest more cellular aging relative to population"
+    elif prediction > POPULATION_STATS['telomere_mean'] + POPULATION_STATS['telomere_std']:
+        interpretation = "**Longer than average** (higher percentile) - May suggest less cellular aging relative to population"
+    else:
+        interpretation = "**Near population average** - Typical telomere length for this demographic profile"
+
+    st.info(f"""
+    **Your Result Explained:**
+
+    - Your telomere score: **{interpretation}**
+    - Percentile rank: **~{percentile}th percentile**
+    - Distance from mean: **{diff_from_mean:+.3f}** standard deviations
+    - Population average: **{POPULATION_STATS['telomere_mean']:.3f}** (±{POPULATION_STATS['telomere_std']:.3f})
+    """)
+
+    st.markdown("---")
+    st.subheader("🌍 How You Compare to Population")
+
+    comp_col1, comp_col2, comp_col3 = st.columns(3)
+    with comp_col1:
+        st.write("**Your Profile**")
+        st.write(f"• Age: **{age}** years")
+        st.write(f"• BMI: **{bmi:.1f}** kg/m² ({bmi_category})")
+        st.write(f"• Sex: **{sex}**")
+        st.write(f"• Race/Ethnicity: **{race_selected}**")
+
+    with comp_col2:
+        st.write("**Population Averages**")
+        st.write(f"• Mean Age: **{POPULATION_STATS['age_mean']:.1f}** years")
+        st.write(f"• Mean BMI: **{POPULATION_STATS['bmi_mean']:.1f}** kg/m²")
+        st.write(f"• T/S Ratio: **{POPULATION_STATS['telomere_mean']:.3f}**")
+        st.write(f"• Final model sample: **{POPULATION_STATS['sample_size']:,}** NHANES participants after cleaning")
+        st.write(f"• Combined across both cycles: **{POPULATION_STATS['combined_cycle_sample']:,}** respondents")
+
+    with comp_col3:
+        st.write("**Population Ranges**")
+        st.write(f"• Age: **{POPULATION_STATS['age_range'][0]}-{POPULATION_STATS['age_range'][1]}** years")
+        st.write(f"• BMI: **{POPULATION_STATS['bmi_range'][0]:.1f}-{POPULATION_STATS['bmi_range'][1]:.1f}** kg/m²")
+        st.write(f"• T/S Ratio: **{POPULATION_STATS['telomere_range'][0]:.2f}-{POPULATION_STATS['telomere_range'][1]:.2f}**")
+        st.write(f"• Std Deviation: **±{POPULATION_STATS['telomere_std']:.3f}**")
+
+    st.markdown("---")
+    st.subheader("📊 Your Result in Population Context")
+
+    # Use a tight, data-driven window around the distribution instead of the
+    # full range (which stretches out to extreme outliers, leaving most of
+    # the chart empty) — mean ± 4 standard deviations covers the vast
+    # majority of the population and stays visually readable.
+    x_lower = max(POPULATION_STATS['telomere_range'][0],
+                   POPULATION_STATS['telomere_mean'] - 4 * POPULATION_STATS['telomere_std'])
+    x_upper = min(POPULATION_STATS['telomere_range'][1],
+                   POPULATION_STATS['telomere_mean'] + 4 * POPULATION_STATS['telomere_std'])
+    # Make sure the user's own prediction is always visible, even if it's an outlier
+    x_lower = min(x_lower, prediction - 0.1)
+    x_upper = max(x_upper, prediction + 0.1)
+
+    x_range = np.linspace(x_lower, x_upper, 200)
+    y_range = norm.pdf(x_range, POPULATION_STATS['telomere_mean'], POPULATION_STATS['telomere_std'])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x_range, y=y_range,
+        mode='lines',
+        name='Population Distribution',
+        line=dict(color='#7a5ce5', width=3),
+        fill='tozeroy',
+        fillcolor='rgba(122, 92, 229, 0.20)'
+    ))
+    fig.add_vline(
+        x=POPULATION_STATS['telomere_mean'],
+        line_dash="dash",
+        line_color="#a78bfa",
+        line_width=2,
+        annotation_text=f"Population Mean: {POPULATION_STATS['telomere_mean']:.3f}",
+        annotation_position="top left",
+        annotation_yshift=0,
+    )
+    fig.add_vline(
+        x=prediction,
+        line_dash="solid",
+        line_color="#4c1d95",
+        line_width=3,
+        annotation_text=f"Your Score: {prediction:.3f}",
+        annotation_position="top right",
+        annotation_yshift=25,
+    )
+    fig.update_layout(
+        title="Your Telomere Length in Population Distribution",
+        xaxis_title="T/S Ratio (Telomere Length)",
+        yaxis_title="Density",
+        xaxis_range=[x_lower, x_upper],
+        height=280,
+        margin=dict(l=40, r=40, t=75, b=40),
+        showlegend=True,
+        hovermode='x unified'
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 # ==================== INTRO PAGE ====================
 if not st.session_state.show_form:
     st.markdown('<div class="page-shell"><div class="intro-container">', unsafe_allow_html=True)
-    st.image(
-        "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=1400&q=80",
-        caption="Telomeres protect chromosome ends and are linked to cellular aging.",
-        use_container_width=True,
-    )
+
+    with st.container(key="banner_image"):
+        st.image(
+            "chromosome_image.jpg",
+            caption="Telomeres protect chromosome ends and are linked to cellular aging.",
+            use_container_width=True,
+        )
+
     st.markdown('<div class="intro-title">🧬 Telomere Length Estimator</div>', unsafe_allow_html=True)
     st.markdown('<div class="intro-subtitle">Predict Your Cellular Aging Profile</div>', unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("🚀 Let's Get Started", key="start_btn", use_container_width=True):
+            st.session_state.show_form = True
+            st.rerun()
 
     st.markdown(
         """
@@ -225,12 +403,6 @@ if not st.session_state.show_form:
     )
 
     st.markdown('</div>', unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        if st.button("🚀 Let's Get Started", key="start_btn", use_container_width=True):
-            st.session_state.show_form = True
-            st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== PREDICTOR PAGE ====================
@@ -252,13 +424,41 @@ else:
     with tab1:
         st.subheader("Enter Your Details")
 
+        age_min, age_max = int(POPULATION_STATS['age_range'][0]), int(POPULATION_STATS['age_range'][1])
+        bmi_min, bmi_max = POPULATION_STATS['bmi_range'][0], POPULATION_STATS['bmi_range'][1]
+
         col1, col2 = st.columns(2)
         with col1:
-            age_text = st.text_input("Age (years)", value="40")
-            height_text = st.text_input("Height (cm)", value="170.0")
+            age = st.number_input(
+                "Age (years)",
+                min_value=0,
+                max_value=120,
+                value=None,
+                placeholder="e.g. 40",
+                step=1,
+                help=f"Model was trained on ages {age_min}–{age_max} from NHANES data.",
+                key="input_age",
+            )
+            height_cm = st.number_input(
+                "Height (cm)",
+                min_value=50.0,
+                max_value=250.0,
+                value=None,
+                placeholder="e.g. 170",
+                step=0.5,
+                key="input_height",
+            )
         with col2:
-            weight_text = st.text_input("Weight (kg)", value="70.0")
-            sex = st.radio("Sex", options=["Female", "Male"], horizontal=True)
+            weight_kg = st.number_input(
+                "Weight (kg)",
+                min_value=10.0,
+                max_value=300.0,
+                value=None,
+                placeholder="e.g. 70",
+                step=0.5,
+                key="input_weight",
+            )
+            sex = st.radio("Sex", options=["Female", "Male"], horizontal=True, index=None, key="input_sex")
 
         race_map = {
             "Mexican American": 1,
@@ -267,18 +467,73 @@ else:
             "Non-Hispanic Black": 4,
             "Other / Multiracial": 5,
         }
-        race_selected = st.selectbox("Race / Ethnicity", options=list(race_map.keys()))
-        race_code = race_map[race_selected]
+        race_selected = st.selectbox(
+            "Race / Ethnicity",
+            options=list(race_map.keys()),
+            index=None,
+            placeholder="Select one…",
+            key="input_race",
+        )
 
-        if st.button("🧬 Calculate Prediction", type="primary", use_container_width=True):
-            if not age_text.strip() or not height_text.strip() or not weight_text.strip():
-                st.warning("Please fill out all fields before submitting.")
+        model_name = "Linear Regression"
+
+        with st.expander("ℹ️ Which model powers this prediction, and how accurate is it?"):
+            st.markdown("""
+            This tool uses **Linear Regression** — it fits one straight-line relationship
+            between each input (age, BMI, sex, race) and telomere length, then adds up their
+            individual effects. Two other approaches (Random Forest, Gradient Boosting) were
+            tested throughout this project, but Linear Regression consistently came out most
+            accurate at every stage, likely because the real relationship — especially with
+            age — is close to linear rather than complex or non-linear.
+
+            **Accuracy on held-out test data this project never trained on:**
+            """)
+
+            m = MODEL_METRICS[model_name]
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            with metric_col1:
+                st.metric("R² (higher = better)", f"{m['r2']:.3f}")
+            with metric_col2:
+                st.metric("MAE", f"{m['mae']:.3f}")
+            with metric_col3:
+                st.metric("RMSE", f"{m['rmse']:.3f}")
+            st.caption(
+                "R² of around 0.2 means the model captures a real but modest share of "
+                "telomere length variation — most of the remaining variation likely comes "
+                "from genetics, individual biology, and measurement noise this data can't "
+                "capture."
+            )
+
+        btn_col1, btn_col2 = st.columns([3, 1])
+        with btn_col1:
+            calculate_clicked = st.button("🧬 Calculate Prediction", type="primary", use_container_width=True)
+        with btn_col2:
+            if st.button("↺ Reset", use_container_width=True):
+                st.session_state.pop("last_result", None)
+                for widget_key in ["input_age", "input_height", "input_weight", "input_sex", "input_race"]:
+                    st.session_state.pop(widget_key, None)
+                st.rerun()
+
+        if calculate_clicked:
+            if age is None or height_cm is None or weight_kg is None or sex is None or race_selected is None:
+                st.warning("⚠️ Please fill out all fields before calculating a prediction.")
+            elif age < age_min or age > age_max:
+                st.error(
+                    f"🚫 Age must be between **{age_min} and {age_max}** years — "
+                    f"the model was only trained on NHANES participants in that range. "
+                    f"A prediction outside it would be unreliable, so it wasn't calculated."
+                )
             else:
+                race_code = race_map[race_selected]
                 try:
-                    age = int(age_text)
-                    height_cm = float(height_text)
-                    weight_kg = float(weight_text)
                     bmi = weight_kg / ((height_cm / 100) ** 2)
+
+                    if bmi < bmi_min or bmi > bmi_max:
+                        st.warning(
+                            f"⚠️ Calculated BMI ({bmi:.1f}) falls outside the range the model was "
+                            f"trained on ({bmi_min:.1f}–{bmi_max:.1f}). The prediction below is an "
+                            f"extrapolation and may be less reliable."
+                        )
 
                     row = {
                         "RIDAGEYR": age,
@@ -292,118 +547,30 @@ else:
                     }
 
                     input_df = pd.DataFrame([row])[feature_cols]
-                    prediction = model.predict(input_df)[0]
+                    # Models are trained on log(TELOMEAN) — convert back to
+                    # the real T/S ratio scale before displaying anything
+                    prediction = np.exp(MODEL.predict(input_df)[0])
+                    rmse = MODEL_METRICS[model_name]["rmse"]
 
-                    st.success(f"Your Estimated Telomere Length (T/S Ratio): **{prediction:.3f}**")
-
-                    bmi_category, bmi_emoji = get_bmi_classification(bmi)
-                    st.caption(f"Calculated BMI: **{bmi:.1f} kg/m²** | {bmi_emoji}")
-
-                    st.markdown("---")
-                    st.subheader("📈 What Does This Mean?")
-
-                    z_score = (prediction - POPULATION_STATS['telomere_mean']) / POPULATION_STATS['telomere_std']
-                    percentile = int((1 + np.tanh(z_score / np.sqrt(2))) * 50)
-                    diff_from_mean = prediction - POPULATION_STATS['telomere_mean']
-
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Your T/S Ratio", f"{prediction:.3f}")
-                    with col2:
-                        st.metric("Population Mean", f"{POPULATION_STATS['telomere_mean']:.3f}")
-                    with col3:
-                        direction = "Shorter ↓" if diff_from_mean < 0 else "Longer ↑"
-                        st.metric("vs. Population", f"{diff_from_mean:+.3f}", direction)
-
-                    if prediction < POPULATION_STATS['telomere_mean'] - POPULATION_STATS['telomere_std']:
-                        interpretation = "**Shorter than average** (lower percentile) - May suggest more cellular aging relative to population"
-                    elif prediction > POPULATION_STATS['telomere_mean'] + POPULATION_STATS['telomere_std']:
-                        interpretation = "**Longer than average** (higher percentile) - May suggest less cellular aging relative to population"
-                    else:
-                        interpretation = "**Near population average** - Typical telomere length for this demographic profile"
-
-                    st.info(f"""
-                    **Your Result Explained:**
-
-                    - Your telomere score: **{interpretation}**
-                    - Percentile rank: **~{percentile}th percentile**
-                    - Distance from mean: **{diff_from_mean:+.3f}** standard deviations
-                    - Population average: **{POPULATION_STATS['telomere_mean']:.3f}** (±{POPULATION_STATS['telomere_std']:.3f})
-                    """)
-
-                    st.markdown("---")
-                    st.subheader("🌍 How You Compare to Population")
-
-                    comp_col1, comp_col2, comp_col3 = st.columns(3)
-                    with comp_col1:
-                        st.write("**Your Profile**")
-                        st.write(f"• Age: **{age}** years")
-                        st.write(f"• BMI: **{bmi:.1f}** kg/m² ({bmi_category})")
-                        st.write(f"• Sex: **{sex}**")
-                        st.write(f"• Race/Ethnicity: **{race_selected}**")
-
-                    with comp_col2:
-                        st.write("**Population Averages**")
-                        st.write(f"• Mean Age: **{POPULATION_STATS['age_mean']:.1f}** years")
-                        st.write(f"• Mean BMI: **{POPULATION_STATS['bmi_mean']:.1f}** kg/m²")
-                        st.write(f"• T/S Ratio: **{POPULATION_STATS['telomere_mean']:.3f}**")
-                        st.write(f"• Final model sample: **{POPULATION_STATS['sample_size']:,}** NHANES participants after cleaning")
-                        st.write(f"• Combined across both cycles: **{POPULATION_STATS['combined_cycle_sample']:,}** respondents")
-
-                    with comp_col3:
-                        st.write("**Population Ranges**")
-                        st.write(f"• Age: **{POPULATION_STATS['age_range'][0]}-{POPULATION_STATS['age_range'][1]}** years")
-                        st.write(f"• BMI: **{POPULATION_STATS['bmi_range'][0]:.1f}-{POPULATION_STATS['bmi_range'][1]:.1f}** kg/m²")
-                        st.write(f"• T/S Ratio: **{POPULATION_STATS['telomere_range'][0]:.2f}-{POPULATION_STATS['telomere_range'][1]:.2f}**")
-                        st.write(f"• Std Deviation: **±{POPULATION_STATS['telomere_std']:.3f}**")
-
-                    st.markdown("---")
-                    st.subheader("📊 Your Result in Population Context")
-
-                    x_range = np.linspace(
-                        POPULATION_STATS['telomere_range'][0],
-                        POPULATION_STATS['telomere_range'][1],
-                        200
-                    )
-                    y_range = norm.pdf(x_range, POPULATION_STATS['telomere_mean'], POPULATION_STATS['telomere_std'])
-
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=x_range, y=y_range,
-                        mode='lines',
-                        name='Population Distribution',
-                        line=dict(color='#7a5ce5', width=3),
-                        fill='tozeroy',
-                        fillcolor='rgba(122, 92, 229, 0.20)'
-                    ))
-                    fig.add_vline(
-                        x=POPULATION_STATS['telomere_mean'],
-                        line_dash="dash",
-                        line_color="#a78bfa",
-                        line_width=2,
-                        annotation_text=f"Population Mean: {POPULATION_STATS['telomere_mean']:.3f}",
-                        annotation_position="top left"
-                    )
-                    fig.add_vline(
-                        x=prediction,
-                        line_dash="solid",
-                        line_color="#4c1d95",
-                        line_width=3,
-                        annotation_text=f"Your Score: {prediction:.3f}",
-                        annotation_position="top right"
-                    )
-                    fig.update_layout(
-                        title="Your Telomere Length in Population Distribution",
-                        xaxis_title="T/S Ratio (Telomere Length)",
-                        yaxis_title="Density",
-                        height=400,
-                        showlegend=True,
-                        hovermode='x unified'
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Store in session_state so results survive reruns
+                    # (e.g. clicking the theme toggle) instead of disappearing
+                    st.session_state.last_result = {
+                        "prediction": prediction,
+                        "bmi": bmi,
+                        "age": age,
+                        "sex": sex,
+                        "race_selected": race_selected,
+                        "model_name": model_name,
+                        "rmse": rmse,
+                    }
 
                 except ValueError:
                     st.error("❌ Please enter valid numbers for Age, Height, and Weight.")
+
+        # Display the most recent result (persists across reruns, e.g. theme toggle)
+        if "last_result" in st.session_state:
+            render_prediction_result(**st.session_state.last_result)
+
 
     with tab2:
         st.subheader("Model Performance & Feature Importance")
